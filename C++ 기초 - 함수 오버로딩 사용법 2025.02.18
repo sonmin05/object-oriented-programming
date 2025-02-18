@@ -1,0 +1,143 @@
+# 1. 함수 오버로딩의 이해
+
+```c
+int main(void)
+{
+	MyFunc(20);
+	MyFunc(30, 40);
+	return 0;
+}
+```
+
+c++은 함수 호출 시 ‘함수의 이름’과 ‘전달되는 인자의 정보’를 동시에 참조하여 호출할 함수를 결정,
+
+따라서 이렇듯 매개 변수의 선언이 다르다면 동일한 이름의 함수도 정의 가능힘.
+
+그리고 이러한 형태의 함수 정의를 가리켜 ‘함수의 오버로딩’이라고 함.
+
+### 오버 로딩의 3대 법칙
+
+- 메소드(함수)의 이름이 같아야 함.
+- 매개 변수의 개수 또는 타입이 달라야 함.
+- 매개 변수는 같고, 리턴 타입이 다른 경우는 오버 로딩이 성립되지 않는다.
+
+---
+
+# 2. 함수 오버 로딩의 예제 - 1
+
+```c
+int MyFunc(char c) {. . .}
+int MyFunc(int c) {. . .}
+```
+
+- 매개 변수의 자료형이 다르므로 함수 오버 로딩이 성립
+
+```c
+int MyFunc(int n) {. . .}
+int MyFunc(int n1, int n2) {. . .}
+```
+
+- 매개 변수의 수가 다르므로 함수 오버 로딩 성립
+
+```c
+void MyFunc(int n) {. . .}
+int MyFunc(int n) {. . .}
+```
+
+- 반환형의 차이는 함수 오버로딩의 조건을 만족시키지 않음.
+
+```c
+int MyFunc(int num)
+{
+	num++;
+	return num;
+}
+
+int MyFunc(int a, int b)
+{
+	return a+b;
+}
+
+int main(void)
+{
+	MyFunc(20);
+	MyFunc(30, 40);
+	return 0;
+}
+```
+
+![image.png](attachment:17e3799d-e4b7-41cc-b7ac-b1d630009a3e:image.png)
+
+- 함수 오버 로딩을 하기 위해서는 매개 변수의 선언이 달라야 함.
+- 매개 변수의 자료형이 다르거나, 매개 변수의 개수가 다르거나 해야 함.
+
+```c
+void MyFunc(int n)
+int MyFunc(int n)
+```
+
+- 오버 로딩 조건을 만족시키지 못함.
+- 두 함수는 반환형이 다름.
+- 반환형은 호출되는 함수를 구분하는 기준이 될 수 없기 때문임.
+
+---
+
+# 실습
+
+1.
+
+```c
+#include <iostream>
+
+void MyFunc(void)
+{
+    std::cout<<"MyFunc(void) called"<<std::endl;
+}
+
+void MyFunc(char c)
+{
+    std::cout<<"MyFunc(char c) called"<<std::endl;
+}
+
+void MyFunc(int a, int b)
+{
+    std::cout<<"MyFunc(int a, int b) called"<<std::endl;
+}
+
+int main(void)
+{
+    MyFunc();
+    MyFunc('A');
+    MyFunc(12, 13);
+    return 0;
+}
+
+```
+
+![image.png](attachment:fbfc85d4-b204-4f4c-b4f4-b3df3a55bf6a:image.png)
+
+2.
+
+```c
+#include <iostream>
+
+int addlnteger(int x, int y)
+{
+    return x + y;
+}
+
+double addDouble(double x, double y)
+{
+    return x + y;
+}
+
+int main()
+{
+    std::cout << "정수 합: " << add(5, 10) << std::endl;
+    std::cout << "실수 합: " << add(3.5, 7.2) << std::endl;
+    
+    return 0;
+}
+```
+
+![image.png](attachment:8ecfc2d7-d621-46dc-b27c-d6beb0ef84c6:cb3e35ec-ded4-42aa-b02e-662a0d53e629.png)
