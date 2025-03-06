@@ -1,0 +1,65 @@
+#define WINDOW_SIZE 6
+
+class RecursiveMovingAverage
+{
+  private:
+    float sensorData[WINDOW_SIZE];
+    int windowSize;
+
+  public:
+    RecursiveMovingAverage() : windowSize(WINDOW_SIZE)
+    {
+      // Initialize all elements to 0
+      for (int i = 0; i < windowSize; i++)
+      {
+        sensorData[i] = 0.0;
+      }
+    }
+
+    float update(float adValue, float avgOld)
+    {
+      float avg = 0.0;
+      float oldValue = sensorData[0];
+
+      // Shift the array
+      for (int i = 0; i < windowSize - 1; i++)
+      {
+        sensorData[i] = sensorData[i + 1];
+      }
+      sensorData[windowSize - 1] = adValue;
+
+      // Calculate new average
+      avg = avgOld + (sensorData[windowSize - 1] - oldValue) / windowSize;
+
+      return avg;
+    }
+};
+
+// Create instances of RecursiveMovingAverage
+RecursiveMovingAverage movingAvg1;
+RecursiveMovingAverage movingAvg2;
+
+float read_front_steering_sensor_adc()
+{
+  static float avgOld1 = 0;
+  float adValue = (float)analogRead(A0); // Read analog value
+  float ad_value = movingAvg1.update(adValue, avgOld1);
+  avgOld1 = ad_value;
+  return ad_value;
+}
+
+void setup() {
+  // Initialize serial communication
+  Serial.begin(9600);
+}
+
+void loop() {
+  // Read and print the smoothed sensor value
+  float smoothedValue = read_front_steering_sensor_adc();
+
+  Serial.print("Smoothed Sensor Value: ");
+  Serial.println(smoothedValue);
+
+  // Optional: Add a small delay to control sampling rate
+  delay(100);
+}
