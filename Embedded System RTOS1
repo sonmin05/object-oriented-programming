@@ -1,0 +1,132 @@
+#include <Arduino_FreeRTOS.h>
+
+void TaskSerial(void *pvParameters);
+void TaskBlink(void *pvParameters);
+void TaskReadADC0(void *pvParameters);
+void TaskReadADC1(void *pvParameters);
+
+// 아날로그 핀 정의
+#define ADC0_PIN A0
+#define ADC1_PIN A1
+
+// 로직 분석용 디지털 핀 정의
+#define BLINK_PIN 2
+#define SERIAL_PIN 3
+#define ADC0_PIN_LOGIC 4
+#define ADC1_PIN_LOGIC 5
+
+void setup() 
+{
+  Serial.begin(9600);
+  
+  // 로직 분석용 핀 초기화
+  pinMode(BLINK_PIN, OUTPUT);
+  pinMode(SERIAL_PIN, OUTPUT);
+  pinMode(ADC0_PIN_LOGIC, OUTPUT);
+  pinMode(ADC1_PIN_LOGIC, OUTPUT);
+  
+  digitalWrite(BLINK_PIN, LOW);
+  digitalWrite(SERIAL_PIN, LOW);
+  digitalWrite(ADC0_PIN_LOGIC, LOW);
+  digitalWrite(ADC1_PIN_LOGIC, LOW);
+  
+  xTaskCreate(
+    TaskBlink,  // 태스크 함수
+    "Blink",    // 태스크 이름
+    128,        // 스택 크기
+    NULL,       // 파라미터
+    2,          // 우선순위
+    NULL);      // 태스크 핸들
+  xTaskCreate(
+    TaskSerial,
+    "Serial",
+    128,
+    NULL,
+    1,
+    NULL);
+  xTaskCreate(
+    TaskReadADC0,
+    "ADC0",
+    128,
+    NULL,
+    4,
+    NULL);  
+  xTaskCreate(
+    TaskReadADC1,
+    "ADC1",
+    128,
+    NULL,
+    3,
+    NULL);      
+}
+
+void loop()
+{
+  // FreeRTOS를 사용할 때는 loop()가 비어 있습니다
+}
+
+void TaskBlink(void *pvParameters) 
+{
+  pinMode(LED_BUILTIN, OUTPUT); 
+  for (;;) 
+  {
+    digitalWrite(BLINK_PIN, HIGH);  // 시작 시간 표시
+    
+    digitalWrite(LED_BUILTIN, HIGH);
+    vTaskDelay(1000 / portTICK_PERIOD_MS);
+    digitalWrite(LED_BUILTIN, LOW);
+    vTaskDelay(1000 / portTICK_PERIOD_MS);
+    
+    digitalWrite(BLINK_PIN, LOW);   // 종료 시간 표시
+  }
+}
+
+void TaskSerial(void *pvParameters) 
+{
+  for (;;) {
+    digitalWrite(SERIAL_PIN, HIGH);  // 시작 시간 표시
+    
+    Serial.println("Task Serial Running");
+    vTaskDelay(500 / portTICK_PERIOD_MS);
+    
+    digitalWrite(SERIAL_PIN, LOW);   // 종료 시간 표시
+  }
+}
+
+void TaskReadADC0(void *pvParameters) 
+{
+  int adcValue;
+  for (;;) 
+  {
+    digitalWrite(ADC0_PIN_LOGIC, HIGH);  // 시작 시간 표시
+    
+    adcValue = analogRead(ADC0_PIN);
+    Serial.print("ADC0: ");
+    Serial.print(adcValue);
+    Serial.print(" (");
+    Serial.print((adcValue * 5.0) / 1023.0, 2);
+    Serial.println("V)");
+    vTaskDelay(1000 / portTICK_PERIOD_MS);
+    
+    digitalWrite(ADC0_PIN_LOGIC, LOW);   // 종료 시간 표시
+  }
+}
+
+void TaskReadADC1(void *pvParameters) 
+{
+  int adcValue;
+  for (;;) 
+  {
+    digitalWrite(ADC1_PIN_LOGIC, HIGH);  // 시작 시간 표시
+    
+    adcValue = analogRead(ADC1_PIN);
+    Serial.print("ADC1: ");
+    Serial.print(adcValue);
+    Serial.print(" (");
+    Serial.print((adcValue * 5.0) / 1023.0, 2);
+    Serial.println("V)");
+    vTaskDelay(1000 / portTICK_PERIOD_MS);
+    
+    digitalWrite(ADC1_PIN_LOGIC, LOW);   // 종료 시간 표시
+  }
+}
