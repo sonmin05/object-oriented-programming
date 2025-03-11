@@ -1,0 +1,148 @@
+#include <Arduino.h>
+#include <Arduino_FreeRTOS.h>
+#include <semphr.h>
+#include <queue.h>
+#include <NewPing.h>
+
+#define SONAR_COUNT 4  
+
+const uint8_t TRIGGER_PINS[SONAR_COUNT] = {22, 24, 26, 28};
+const uint8_t ECHO_PINS[SONAR_COUNT] = {23, 25, 27, 29};
+
+const char* SENSOR_NAMES[SONAR_COUNT] = {"전방", "후방", "좌측", "우측"};
+
+#define MAX_DISTANCE 400 
+#define MIN_PING_INTERVAL 15 
+
+SemaphoreHandle_t sonarDataMutex;
+
+QueueHandle_t serialOutputQueue;
+#define SERIAL_QUEUE_LENGTH 10
+#define SERIAL_ITEM_SIZE 128
+
+volatile uint16_t sonarDistances[SONAR_COUNT] = {0};
+
+volatile unsigned long lastMeasurementTime[SONAR_COUNT] = {0};
+
+NewPing sonars[SONAR_COUNT] = {
+  NewPing(TRIGGER_PINS[0], ECHO_PINS[0], MAX_DISTANCE),
+  NewPing(TRIGGER_PINS[1], ECHO_PINS[1], MAX_DISTANCE),
+  NewPing(TRIGGER_PINS[2], ECHO_PINS[2], MAX_DISTANCE),
+  NewPing(TRIGGER_PINS[3], ECHO_PINS[3], MAX_DISTANCE)
+};
+
+TaskHandle_t sonarTaskHandle;
+TaskHandle_t processingTaskHandle;
+TaskHandle_t serialOutputTaskHandle;
+
+void vSonarTask(void *pvParameters)
+{
+  for (;;) {
+    for (uint8_t i = 0; i < SONAR_COUNT; i++)
+    {
+      unsigned long currentTime = millis();
+
+      uint16_t distance = sonars[i].ping_cm();
+                                                                                                              
+      if (distance == 0)
+      {
+        distance = MAX_DISTANCE; 
+      }
+
+      if (xSemaphoreTake(sonarDataMutex, pdMS_TO_TICKS(100)) == pdTRUE)
+      {
+        sonarDistances[i] = distance;
+        lastMeasurementTime[i] = currentTime;
+        xSemaphoreGive(sonarDataMutex);
+      }
+
+      vTaskDelay(pdMS_TO_TICKS(MIN_PING_INTERVAL));
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(10));
+  }
+}
+
+void vProcessingTask(void *pvParameters)
+{
+  const TickType_t xDelay = pdMS_TO_TICKS(100);  
+  uint16_t localDistances[SONAR_COUNT];
+
+  for (;;)
+  {
+    bool dataUpdated = false;
+
+    if (xSemaphoreTake(sonarDataMutex, pdMS_TO_TICKS(100)) == pdTRUE)
+    {
+      memcpy(localDistances, (void*)sonarDistances, sizeof(localDistances));
+      xSemaphoreGive(sonarDataMutex);
+      dataUpdated = true;
+    }
+
+    if (dataUpdated)
+    {
+      for (int i = 0; i < SONAR_COUNT; i++)
+      {
+        if (localDistances[i] > 0)
+        {  
+          char buffer[SERIAL_ITEM_SIZE];
+          snprintf(buffer, SERIAL_ITEM_SIZE, "%s 센서: %d cm", SENSOR_NAMES[i], localDistances[i]);
+
+          if (xQueueSend(serialOutputQueue, buffer, pdMS_TO_TICKS(10)) != pdTRUE) {
+            Serial.println("Failed to send data to queue");
+          }
+        }
+      }
+
+      char divider[SERIAL_ITEM_SIZE] = "------------------------";
+      xQueueSend(serialOutputQueue, divider, pdMS_TO_TICKS(10));
+    }
+
+    vTaskDelay(xDelay);
+  }
+}
+
+void vSerialOutputTask(void *pvParameters)
+{
+  char buffer[SERIAL_ITEM_SIZE];
+
+  for (;;)
+  {
+    if (xQueueReceive(serialOutputQueue, buffer, pdMS_TO_TICKS(100)) == pdTRUE) {
+
+      Serial.println(buffer);
+    } 
+    else
+    {
+      Serial.println("Queue receive timeout");
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(5));
+  }
+}
+
+void setup()
+{
+  Serial.begin(115200);
+
+  Serial.println(F("초음파 센서 시스템 - FreeRTOS"));
+  Serial.println(F("전방/후방/좌측/우측 센서 모니터링"));
+  Serial.println();
+
+  sonarDataMutex = xSemaphoreCreateMutex();
+
+  serialOutputQueue = xQueueCreate(SERIAL_QUEUE_LENGTH, SERIAL_ITEM_SIZE);
+
+  xTaskCreate(vSonarTask, "SonarTask", 256, NULL, 3, &sonarTaskHandle);
+
+  xTaskCreate(vProcessingTask, "ProcessingTask", 192, NULL, 2, &processingTaskHandle);
+
+  xTaskCreate(vSerialOutputTask, "SerialOutputTask", 192, NULL, 1, &serialOutputTaskHandle);
+
+  vTaskStartScheduler();
+}
+
+void loop()
+{
+  
+}
