@@ -1,0 +1,194 @@
+#include <Arduino_FreeRTOS.h>
+#include <semphr.h>
+
+#define WINDOW_SIZE 6
+#define NUM_ADC_CHANNELS 4
+
+// ADC 핀 정의
+const uint8_t ADC_PINS[NUM_ADC_CHANNELS] = {A0, A1, A2, A3};
+
+// ADC 변환 데이터를 위한 구조체
+typedef struct {
+  int channelNum;               // ADC 채널 번호
+  float rawValue;               // 원시 ADC 값
+  float filteredValue;          // 필터링된 값
+  uint32_t samplingInterval;    // 샘플링 간격 (ms)
+} AdcChannelData_t;
+
+// 이동평균 필터 클래스
+class RecursiveMovingAverage
+{
+private:
+  float sensorData[WINDOW_SIZE];
+  int windowSize;
+
+public:
+  RecursiveMovingAverage() : windowSize(WINDOW_SIZE)
+  {
+    // 초기화
+    for (int i = 0; i < windowSize; i++)
+    {
+      sensorData[i] = 0.0;
+    }
+  }
+
+  float update(float adValue, float avgOld)
+  {
+    float avg = 0.0;
+    float oldValue = sensorData[0];
+
+    // Shift the array
+    for (int i = 0; i < windowSize - 1; i++)
+    {
+      sensorData[i] = sensorData[i + 1];
+    }
+    sensorData[windowSize - 1] = adValue;
+
+    // Calculate new average
+    avg = avgOld + (sensorData[windowSize - 1] - oldValue) / windowSize;
+
+    return avg;
+  }
+
+  // 초기 평균 계산
+  float initAverage(float adValue) {
+    // 모든 값을 현재 값으로 채우기
+    for (int i = 0; i < windowSize; i++) {
+      sensorData[i] = adValue;
+    }
+    return adValue;
+  }
+};
+
+// 채널별 이동평균 필터 인스턴스
+RecursiveMovingAverage movingAvg[NUM_ADC_CHANNELS];
+
+// 채널별 ADC 데이터
+AdcChannelData_t adcData[NUM_ADC_CHANNELS] = {
+  {0, 0.0, 0.0, 100},  // 채널 0: 100ms 간격
+  {1, 0.0, 0.0, 200},  // 채널 1: 200ms 간격
+  {2, 0.0, 0.0, 300},  // 채널 2: 300ms 간격
+  {3, 0.0, 0.0, 400}   // 채널 3: 400ms 간격
+};
+
+// 뮤텍스 핸들
+SemaphoreHandle_t adcMutex;
+
+// ADC 변환 태스크
+void AdcTask(void *pvParameters);
+
+// 데이터 출력 태스크
+void PrintTask(void *pvParameters);
+
+void setup() {
+  // 시리얼 초기화
+  Serial.begin(115200);
+  Serial.println(F("FreeRTOS ADC 이동평균 필터 예제"));
+
+  // ADC 핀 설정
+  for (uint8_t i = 0; i < NUM_ADC_CHANNELS; i++) {
+    pinMode(ADC_PINS[i], INPUT);
+  }
+
+  // 뮤텍스 생성
+  adcMutex = xSemaphoreCreateMutex();
+  if (adcMutex == NULL) {
+    Serial.println(F("뮤텍스 생성 실패"));
+    while (1);  // 오류 시 중단
+  }
+
+  // ADC 변환 태스크 생성 (각 채널별로)
+  for (uint8_t i = 0; i < NUM_ADC_CHANNELS; i++) {
+    char taskName[10];
+    sprintf(taskName, "ADC_Ch%d", i);
+
+    xTaskCreate(
+      AdcTask,         // 태스크 함수
+      taskName,        // 태스크 이름
+      128,             // 스택 크기
+      (void*)&adcData[i], // 파라미터
+      1,               // 우선순위
+      NULL             // 태스크 핸들
+    );
+  }
+
+  // 출력 태스크 생성
+  xTaskCreate(
+    PrintTask,         // 태스크 함수
+    "Print",           // 태스크 이름
+    256,               // 스택 크기
+    NULL,              // 파라미터
+    2,                 // 우선순위 (ADC 태스크보다 높음)
+    NULL               // 태스크 핸들
+  );
+}
+
+void loop() {
+  // FreeRTOS 사용시 loop()는 사용되지 않음
+}
+
+// ADC 변환 태스크 함수
+void AdcTask(void *pvParameters) {
+  // 파라미터 가져오기
+  AdcChannelData_t *pData = (AdcChannelData_t*)pvParameters;
+  uint8_t channel = pData->channelNum;
+
+  // 초기값 읽기 및 필터 초기화
+  float initialValue = analogRead(ADC_PINS[channel]) * (5.0 / 1023.0);  // 0-5V 범위로 변환
+  float avgValue = movingAvg[channel].initAverage(initialValue);
+
+  // 최초 값 설정
+  if (xSemaphoreTake(adcMutex, portMAX_DELAY) == pdTRUE) {
+    pData->rawValue = initialValue;
+    pData->filteredValue = avgValue;
+    xSemaphoreGive(adcMutex);
+  }
+
+  TickType_t xLastWakeTime = xTaskGetTickCount();
+
+  for (;;) {
+    // ADC 값 읽기
+    float rawValue = analogRead(ADC_PINS[channel]) * (5.0 / 1023.0);
+
+    // 이동평균 필터 적용
+    float newAvg = movingAvg[channel].update(rawValue, pData->filteredValue);
+
+    // 뮤텍스로 보호된 데이터 업데이트
+    if (xSemaphoreTake(adcMutex, portMAX_DELAY) == pdTRUE) {
+      pData->rawValue = rawValue;
+      pData->filteredValue = newAvg;
+      xSemaphoreGive(adcMutex);
+    }
+
+    // 지정된 간격으로 대기
+    vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(pData->samplingInterval));
+  }
+}
+
+// 데이터 출력 태스크 함수
+void PrintTask(void *pvParameters) {
+  TickType_t xLastWakeTime = xTaskGetTickCount();
+
+  for (;;) {
+    if (xSemaphoreTake(adcMutex, portMAX_DELAY) == pdTRUE) {
+      // 헤더 출력
+      Serial.println(F("\n채널\t원시값\t\t필터링값"));
+      Serial.println(F("-----------------------------------"));
+
+      // 각 채널 데이터 출력
+      for (uint8_t i = 0; i < NUM_ADC_CHANNELS; i++) {
+        Serial.print(adcData[i].channelNum);
+        Serial.print(F("\t"));
+        Serial.print(adcData[i].rawValue, 3);
+        Serial.print(F("V\t"));
+        Serial.print(adcData[i].filteredValue, 3);
+        Serial.println(F("V"));
+      }
+
+      xSemaphoreGive(adcMutex);
+    }
+
+    // 1초마다 출력
+    vTaskDelay(pdMS_TO_TICKS(1000));
+  }
+}
