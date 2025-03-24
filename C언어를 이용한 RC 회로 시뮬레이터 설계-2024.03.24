@@ -1,0 +1,56 @@
+#define _CRT_SECURE_NO_WARNINGS
+#include <stdio.h>
+#include <iostream>
+#include <cstdlib> 
+
+using namespace std;
+
+struct RC_SIM
+{
+    double time;
+    double lc;
+};
+
+int main()
+{
+    double start_time = 0.0;
+    double end_time = 10;
+    double time_step = 0.1;
+    double R = 1;
+    double C = 1;
+
+    cout << "Input Start Time: ";
+    cin >> start_time;
+    cout << endl;
+    cout << "Input End Time: ";
+    cin >> end_time;
+    cout << endl;
+    cout << "Input Step: ";
+    cin >> time_step;
+    cout << endl;
+
+    long no_array = (long)((end_time - start_time) / time_step) + 1;
+
+    if (no_array <= 0)
+    {
+        cout << "오류" << endl;
+        return -1;
+    }
+
+    struct RC_SIM* data_in = (struct RC_SIM*)malloc(sizeof(struct RC_SIM));
+
+    for (long i = 0; i < no_array; ++i)
+    {
+        double t = start_time + i * time_step;
+        double q = C * 5 * (1 - exp(-t / (R * C)));  // 순간 전하량 공식 적용
+
+        data_in[i].time = t;
+        data_in[i].lc = q;
+
+        printf("%lf   %lf\n", t, q);
+    }
+
+    free(data_in);
+
+    return 0;
+}
