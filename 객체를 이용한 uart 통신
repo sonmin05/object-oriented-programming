@@ -1,0 +1,87 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <termios.h>
+#include <pthread.h>
+#include <errno.h>
+#include <stdint.h>
+
+#define BAUDRATE B9600
+#define SERIAL_DEVICE "/dev/ttyS0"
+
+int uart_fd;
+unsigned char read_buf[7] = {0};
+
+uint16_t CRC16_MODBUS(const uint8_t *nData, uint16_t wLength) {
+    static const uint16_t wCRCTable[] = { 0X0000, 0XC0C1, 0XC181, 0X0140, 0XC301, 0X03C0, 0X0280, 0XC241, 0XC601, 0X06C0, 0X0780, 
+                                          0XC741, 0X0500, 0XC5C1, 0XC481, 0X0440, 0XCC01, 0X0CC0, 0X0D80, 0XCD41, 0X0F00, 0XCFC1, 
+                                          0XCE81, 0X0E40, 0X0A00, 0XCAC1, 0XCB81, 0X0B40, 0XC901, 0X09C0, 0X0880, 0XC841, 0XD801, 
+                                          0X18C0, 0X1980, 0XD941, 0X1B00, 0XDBC1, 0XDA81, 0X1A40, 0X1E00, 0XDEC1, 0XDF81, 0X1F40, 
+                                          0XDD01, 0X1DC0, 0X1C80, 0XDC41, 0X1400, 0XD4C1, 0XD581, 0X1540, 0XD701, 0X17C0, 0X1680, 
+                                          0XD641, 0XD201, 0X12C0, 0X1380, 0XD341, 0X1100, 0XD1C1, 0XD081, 0X1040, 0XF001, 0X30C0, 
+                                          0X3180, 0XF141, 0X3300, 0XF3C1, 0XF281, 0X3240, 0X3600, 0XF6C1, 0XF781, 0X3740, 0XF501, 
+                                          0X35C0, 0X3480, 0XF441, 0X3C00, 0XFCC1, 0XFD81, 0X3D40, 0XFF01, 0X3FC0, 0X3E80, 0XFE41, 
+                                          0XFA01, 0X3AC0, 0X3B80, 0XFB41, 0X3900, 0XF9C1, 0XF881, 0X3840, 0X2800, 0XE8C1, 0XE981, 
+                                          0X2940, 0XEB01, 0X2BC0, 0X2A80, 0XEA41, 0XEE01, 0X2EC0, 0X2F80, 0XEF41, 0X2D00, 0XEDC1, 
+                                          0XEC81, 0X2C40, 0XE401, 0X24C0, 0X2580, 0XE541, 0X2700, 0XE7C1, 0XE681, 0X2640, 0X2200, 
+                                          0XE2C1, 0XE381, 0X2340, 0XE101, 0X21C0, 0X2080, 0XE041, 0XA001, 0X60C0, 0X6180, 0XA141, 
+                                          0X6300, 0XA3C1, 0XA281, 0X6240, 0X6600, 0XA6C1, 0XA781, 0X6740, 0XA501, 0X65C0, 0X6480, 
+                                          0XA441, 0X6C00, 0XACC1, 0XAD81, 0X6D40, 0XAF01, 0X6FC0, 0X6E80, 0XAE41, 0XAA01, 0X6AC0, 
+                                          0X6B80, 0XAB41, 0X6900, 0XA9C1, 0XA881, 0X6840, 0X7800, 0XB8C1, 0XB981, 0X7940, 0XBB01, 
+                                          0X7BC0, 0X7A80, 0XBA41, 0XBE01, 0X7EC0, 0X7F80, 0XBF41, 0X7D00, 0XBDC1, 0XBC81, 0X7C40};  
+    uint8_t nTemp; 
+    uint16_t wCRCWord = 0xFFFF; 
+    while (wLength--) { 
+        nTemp = *nData++ ^ wCRCWord; 
+        wCRCWord >>= 8; 
+        wCRCWord ^= wCRCTable[nTemp]; 
+    } 
+    return wCRCWord;                                 
+}
+
+int init_serial_port(void) {
+    int serial_port = open(SERIAL_DEVICE, O_RDWR);
+    struct termios tty;
+    if(tcgetattr(serial_port, &tty) != 0) return 1;
+    tty.c_cflag &= ~PARENB;
+    tty.c_cflag &= ~CSTOPB;
+    tty.c_cflag &= ~CSIZE;
+    tty.c_cflag |= CS8;
+    tty.c_cflag &= ~CRTSCTS;
+    tty.c_cflag |= CREAD | CLOCAL;
+    tty.c_lflag &= ~(ICANON | ECHO | ECHOE | ECHONL | ISIG);
+    tty.c_iflag &= ~(IXON | IXOFF | IXANY | IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL);
+    tty.c_oflag &= ~(OPOST | ONLCR);
+    tty.c_cc[VTIME] = 100;
+    tty.c_cc[VMIN] = 0;
+    cfsetispeed(&tty, BAUDRATE);
+    cfsetospeed(&tty, BAUDRATE);
+    if (tcsetattr(serial_port, TCSANOW, &tty) != 0) return -1;
+    return serial_port;
+}
+
+void* readserial_thread(void* pt) {
+    int num_bytes;
+    unsigned char insert_buf;
+    while (1) {
+        while ((num_bytes = read(uart_fd, &insert_buf, 1)) > 0) {
+            memmove(read_buf, read_buf + 1, 6);
+            read_buf[6] = insert_buf;
+        }
+    }
+    return NULL;
+}
+
+int main() {
+    uart_fd = init_serial_port();
+    if (uart_fd < 0) return 1;
+    pthread_t id_1;
+    if (pthread_create(&id_1, NULL, readserial_thread, NULL) != 0) {
+        close(uart_fd);
+        return 1;
+    }
+    while (1) sleep(1);
+    return 0;
+}
